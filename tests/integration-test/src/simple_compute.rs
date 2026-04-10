@@ -18,6 +18,11 @@ fn test_simple_compute_ash() -> anyhow::Result<()> {
 		let bindless = BindlessInstance::<Ash>::new(
 			ash_init_single_graphics_queue(AshSingleGraphicsQueueCreateInfo {
 				debug: debugger(),
+				extensions: &[
+					ash::khr::ray_query::NAME,
+					ash::khr::ray_tracing_pipeline::NAME,
+					ash::nv::ray_tracing::NAME,
+				],
 				..AshSingleGraphicsQueueCreateInfo::default()
 			})?,
 			DescriptorCounts::REASONABLE_DEFAULTS,
