@@ -142,6 +142,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "auto_ops"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7460f7dd8e100147b82a63afca1a20eb6c231ee36b90ba7272e14951cb58af59"
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -489,6 +495,12 @@ name = "crossbeam-utils"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
+
+[[package]]
+name = "crunchy"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "cursor-icon"
@@ -901,14 +913,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "glam"
-version = "0.30.10"
+name = "gfx-maths"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
+checksum = "757bba517b41d90e60e23f8b810a50a73e705ac3f1be56712ebe403af850189c"
 dependencies = [
- "bytemuck",
- "libm",
+ "auto_ops",
 ]
+
+[[package]]
+name = "glam"
+version = "0.29.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8babf46d4c1c9d92deac9f7be466f76dfc4482b6452fc5024b5e8daf6ffeb3ee"
 
 [[package]]
 name = "glam"
@@ -931,6 +948,17 @@ dependencies = [
  "presser",
  "thiserror 1.0.69",
  "windows",
+]
+
+[[package]]
+name = "half"
+version = "2.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
+dependencies = [
+ "cfg-if",
+ "crunchy",
+ "zerocopy",
 ]
 
 [[package]]
@@ -1065,13 +1093,14 @@ dependencies = [
  "anyhow",
  "approx",
  "ash",
- "glam 0.30.10",
+ "glam 0.32.1",
  "integration-test-shader",
  "pollster",
  "rust-gpu-bindless-core",
  "rust-gpu-bindless-shader-builder",
  "rust-gpu-bindless-winit",
  "smallvec",
+ "spirv-cross2",
  "winit",
 ]
 
@@ -1081,7 +1110,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "bytemuck_derive",
- "glam 0.30.10",
+ "glam 0.32.1",
  "num_enum",
  "rust-gpu-bindless-macros",
  "rust-gpu-bindless-shaders",
@@ -2120,7 +2149,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "bytemuck_derive",
- "glam 0.30.10",
+ "glam 0.32.1",
  "spirv-std",
  "static_assertions",
 ]
@@ -2137,7 +2166,7 @@ dependencies = [
  "crossbeam-queue",
  "crossbeam-utils",
  "futures",
- "glam 0.30.10",
+ "glam 0.32.1",
  "gpu-allocator",
  "konst",
  "num-derive",
@@ -2162,7 +2191,7 @@ dependencies = [
  "bytemuck",
  "egui",
  "egui-winit",
- "glam 0.30.10",
+ "glam 0.32.1",
  "parking_lot",
  "profiling",
  "rust-gpu-bindless-core",
@@ -2198,7 +2227,7 @@ dependencies = [
  "bytemuck",
  "bytemuck_derive",
  "epaint",
- "glam 0.30.10",
+ "glam 0.32.1",
  "rust-gpu-bindless-macros",
  "rust-gpu-bindless-shaders",
  "spirv-std",
@@ -2247,7 +2276,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "bytemuck_derive",
- "glam 0.30.10",
+ "glam 0.32.1",
  "num-derive",
  "num-traits",
  "rust-gpu-bindless-buffer-content",
@@ -2603,6 +2632,47 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "spirv-cross-sys"
+version = "0.6.1+bf6bb5c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f62cba64200088a7458bb700a2622d440420cb84c7c347e2b25f65850bbded3"
+dependencies = [
+ "bytemuck",
+ "cc",
+ "num-derive",
+ "num-traits",
+]
+
+[[package]]
+name = "spirv-cross2"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "696259e05494c2b1dad12286cf545071af01a3802ab44e069e2d33bb9b393b58"
+dependencies = [
+ "bitflags 2.11.0",
+ "bytemuck",
+ "gfx-maths",
+ "glam 0.29.3",
+ "half",
+ "memchr",
+ "spirv",
+ "spirv-cross-sys",
+ "spirv-cross2-derive",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spirv-cross2-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18017a288e6ce64dd5d56510166baeabb01849483555c031f573c091b6934a64"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

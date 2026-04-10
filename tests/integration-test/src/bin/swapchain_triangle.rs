@@ -6,6 +6,7 @@ use glam::{Vec2, Vec4};
 use integration_test::debugger;
 use integration_test_shader::color::ColorEnum;
 use integration_test_shader::triangle::{Param, Vertex};
+use rust_gpu_bindless_core::__private::shader::BindlessShader;
 use rust_gpu_bindless_core::descriptor::{
 	Bindless, BindlessAllocationScheme, BindlessBufferCreateInfo, BindlessBufferUsage, BindlessImageUsage,
 	BindlessInstance, DescriptorCounts, Format, Image2d, MutDesc, MutImage, RCDescExt,

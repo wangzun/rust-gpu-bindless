@@ -27,6 +27,8 @@ smallvec = { workspace = true }
 pollster = { workspace = true }
 anyhow = { workspace = true }
 approx = { workspace = true }
+spirv-cross2 = { version = "0.6.0", features = ["full"] }
+
 
 [build-dependencies]
 anyhow = { workspace = true }

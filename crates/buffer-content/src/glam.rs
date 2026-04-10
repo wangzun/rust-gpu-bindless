@@ -7,7 +7,7 @@ macro_rules! glam_array {
 
 			#[inline]
 			unsafe fn write(self) -> Self::Transfer {
-				<$t>::to_array(&self)
+				self.to_array()
 			}
 
 			#[inline]
@@ -25,7 +25,7 @@ macro_rules! glam_cols_array {
 
 			#[inline]
 			unsafe fn write(self) -> Self::Transfer {
-				<$t>::to_cols_array(&self)
+				self.to_cols_array()
 			}
 
 			#[inline]
