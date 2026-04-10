@@ -20,8 +20,8 @@ fn test_simple_compute_ash() -> anyhow::Result<()> {
 				debug: debugger(),
 				extensions: &[
 					ash::khr::ray_query::NAME,
-					ash::khr::ray_tracing_pipeline::NAME,
-					ash::nv::ray_tracing::NAME,
+					// ash::khr::ray_tracing_pipeline::NAME,
+					// ash::nv::ray_tracing::NAME,
 				],
 				..AshSingleGraphicsQueueCreateInfo::default()
 			})?,
