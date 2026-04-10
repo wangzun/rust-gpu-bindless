@@ -1,9 +1,7 @@
 use crate::codegen::{CodegenOptions, codegen_shader_symbols};
 use cargo_gpu_install::install::Install;
 use proc_macro_crate::FoundCrate;
-use spirv_builder::{
-	Capability, CompileResult, MetadataPrintout, ModuleResult, ShaderPanicStrategy, SpirvBuilder, SpirvMetadata,
-};
+use spirv_builder::{Capability, CompileResult, ModuleResult, ShaderPanicStrategy, SpirvBuilder, SpirvMetadata};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -56,7 +54,7 @@ impl ShaderSymbolsBuilder {
 		// has to be DependencyOnly!
 		// may not be None as it's needed for cargo
 		// may not be Full as that's unsupported with multimodule
-		b.print_metadata = MetadataPrintout::DependencyOnly;
+		// b.print_metadata = MetadataPrintout::DependencyOnly;
 		// required capabilities
 		b.capabilities.extend_from_slice(&[
 			Capability::RuntimeDescriptorArray,
