@@ -6,8 +6,8 @@ use ash::khr::{surface, swapchain};
 use ash::vk::{
 	ApplicationInfo, Bool32, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT,
 	DebugUtilsMessengerCallbackDataEXT, DebugUtilsMessengerCreateInfoEXT, DeviceCreateInfo, DeviceQueueCreateInfo,
-	ExtendsDeviceCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures, PhysicalDeviceType,
-	PhysicalDeviceVulkan11Features, PhysicalDeviceVulkan12Features, PhysicalDeviceVulkan13Features,
+	ExtendsDeviceCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures, PhysicalDeviceRayQueryFeaturesKHR,
+	PhysicalDeviceType, PhysicalDeviceVulkan11Features, PhysicalDeviceVulkan12Features, PhysicalDeviceVulkan13Features,
 	PipelineCacheCreateInfo, QueueFlags, ShaderStageFlags, ValidationFeatureEnableEXT, ValidationFeaturesEXT,
 };
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
@@ -111,6 +111,7 @@ pub struct AshSingleGraphicsQueueCreateInfo<'a> {
 	pub features_vk11: PhysicalDeviceVulkan11Features<'static>,
 	pub features_vk12: PhysicalDeviceVulkan12Features<'static>,
 	pub features_vk13: PhysicalDeviceVulkan13Features<'static>,
+	pub features_ray_tracing: PhysicalDeviceRayQueryFeaturesKHR<'static>,
 	pub debug: Debuggers,
 	pub debug_callback: Option<&'a DebugUtilsMessengerCreateInfoEXT<'a>>,
 }
@@ -126,6 +127,7 @@ impl Default for AshSingleGraphicsQueueCreateInfo<'_> {
 			features_vk11: required_features_vk11(),
 			features_vk12: required_features_vk12(),
 			features_vk13: required_features_vk13(),
+			features_ray_tracing: PhysicalDeviceRayQueryFeaturesKHR::default().ray_query(true),
 			debug: Debuggers::default(),
 			debug_callback: None,
 		}
@@ -262,6 +264,7 @@ pub fn ash_init_single_graphics_queue_with_push_next(
 					.push_next(&mut create_info.features_vk11)
 					.push_next(&mut create_info.features_vk12)
 					.push_next(&mut create_info.features_vk13)
+					.push_next(&mut create_info.features_ray_tracing)
 					.queue_create_infos(&[DeviceQueueCreateInfo::default()
 						.queue_family_index(queue_family_index)
 						.queue_priorities(&[1.])]),
