@@ -7,8 +7,9 @@ use ash::vk::{
 	ApplicationInfo, Bool32, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT,
 	DebugUtilsMessengerCallbackDataEXT, DebugUtilsMessengerCreateInfoEXT, DeviceCreateInfo, DeviceQueueCreateInfo,
 	ExtendsDeviceCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures, PhysicalDeviceRayQueryFeaturesKHR,
-	PhysicalDeviceType, PhysicalDeviceVulkan11Features, PhysicalDeviceVulkan12Features, PhysicalDeviceVulkan13Features,
-	PipelineCacheCreateInfo, QueueFlags, ShaderStageFlags, ValidationFeatureEnableEXT, ValidationFeaturesEXT,
+	PhysicalDeviceRayTracingPipelineFeaturesKHR, PhysicalDeviceType, PhysicalDeviceVulkan11Features,
+	PhysicalDeviceVulkan12Features, PhysicalDeviceVulkan13Features, PipelineCacheCreateInfo, QueueFlags,
+	ShaderStageFlags, ValidationFeatureEnableEXT, ValidationFeaturesEXT,
 };
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
 use gpu_allocator::{AllocationSizes, AllocatorDebugSettings};
@@ -111,7 +112,7 @@ pub struct AshSingleGraphicsQueueCreateInfo<'a> {
 	pub features_vk11: PhysicalDeviceVulkan11Features<'static>,
 	pub features_vk12: PhysicalDeviceVulkan12Features<'static>,
 	pub features_vk13: PhysicalDeviceVulkan13Features<'static>,
-	pub features_ray_tracing: PhysicalDeviceRayQueryFeaturesKHR<'static>,
+	pub features_ray_tracing: PhysicalDeviceRayTracingPipelineFeaturesKHR<'static>,
 	pub debug: Debuggers,
 	pub debug_callback: Option<&'a DebugUtilsMessengerCreateInfoEXT<'a>>,
 }
@@ -127,7 +128,7 @@ impl Default for AshSingleGraphicsQueueCreateInfo<'_> {
 			features_vk11: required_features_vk11(),
 			features_vk12: required_features_vk12(),
 			features_vk13: required_features_vk13(),
-			features_ray_tracing: PhysicalDeviceRayQueryFeaturesKHR::default().ray_query(true),
+			features_ray_tracing: PhysicalDeviceRayTracingPipelineFeaturesKHR::default().ray_tracing_pipeline(true),
 			debug: Debuggers::default(),
 			debug_callback: None,
 		}
