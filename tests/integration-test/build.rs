@@ -4,7 +4,6 @@ fn main() -> anyhow::Result<()> {
 	ShaderSymbolsBuilder::new("integration-test-shader", "spirv-unknown-vulkan1.2")?
 		.capability(Capability::RayQueryKHR)
 		.capability(Capability::RayTracingKHR)
-		.extension("SPV_EXT_shader_image_int64")
 		.extension("SPV_KHR_ray_query")
 		.extension("SPV_KHR_ray_tracing")
 		.build()?;
