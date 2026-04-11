@@ -96,6 +96,208 @@ impl Ash {
 			})
 		}
 	}
+
+	pub unsafe fn build_bottom_level_acceleration_structure(
+		&self,
+		vertex_buffer: ash::vk::Buffer,
+		vertex_count: u32,
+		vertex_stride: u64,
+		index_buffer: ash::vk::Buffer,
+		index_count: u32,
+	) -> ash::vk::DeviceAddress {
+		let ray_device = self.extensions.ray_device.as_ref().expect("Ray tracing not supported");
+
+		// build acceleration structure geometry
+		let geometry = ash::vk::AccelerationStructureGeometryKHR::default()
+			.geometry_type(ash::vk::GeometryTypeKHR::TRIANGLES)
+			.geometry(ash::vk::AccelerationStructureGeometryDataKHR {
+				triangles: ash::vk::AccelerationStructureGeometryTrianglesDataKHR::default()
+					.vertex_format(ash::vk::Format::R32G32B32_SFLOAT)
+					.vertex_data(ash::vk::DeviceOrHostAddressConstKHR {
+						device_address: unsafe {
+							self.device.get_buffer_device_address(
+								&ash::vk::BufferDeviceAddressInfo::default().buffer(vertex_buffer),
+							)
+						},
+					})
+					.vertex_stride(vertex_stride)
+					.max_vertex(vertex_count)
+					.index_type(ash::vk::IndexType::UINT32)
+					.index_data(ash::vk::DeviceOrHostAddressConstKHR {
+						device_address: unsafe {
+							self.device.get_buffer_device_address(
+								&ash::vk::BufferDeviceAddressInfo::default().buffer(index_buffer),
+							)
+						},
+					}),
+			});
+
+		let primitive_count = index_count / 3;
+		let build_range_info = ash::vk::AccelerationStructureBuildRangeInfoKHR::default()
+			.first_vertex(0)
+			.primitive_count(primitive_count)
+			.primitive_offset(0)
+			.transform_offset(0);
+
+		let geometries = [geometry];
+		let mut build_info = ash::vk::AccelerationStructureBuildGeometryInfoKHR::default()
+			.flags(ash::vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+			.geometries(&geometries)
+			.mode(ash::vk::BuildAccelerationStructureModeKHR::BUILD)
+			.ty(ash::vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL);
+
+		let mut size_info = ash::vk::AccelerationStructureBuildSizesInfoKHR::default();
+		unsafe {
+			ray_device.get_acceleration_structure_build_sizes(
+				ash::vk::AccelerationStructureBuildTypeKHR::DEVICE,
+				&build_info,
+				&[primitive_count],
+				&mut size_info,
+			);
+		}
+
+		// Create acceleration structure buffer and allocate memory
+		let bottom_as_buffer = unsafe {
+			self.device
+				.create_buffer(
+					&ash::vk::BufferCreateInfo::default()
+						.size(size_info.acceleration_structure_size)
+						.usage(
+							ash::vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
+								| ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+						)
+						.sharing_mode(SharingMode::EXCLUSIVE),
+					None,
+				)
+				.unwrap()
+		};
+		let bottom_as_buffer_req = unsafe { self.device.get_buffer_memory_requirements(bottom_as_buffer) };
+		let bottom_as_buffer_alloc = self
+			.memory_allocator()
+			.allocate(&AllocationCreateDesc {
+				requirements: bottom_as_buffer_req,
+				name: "bottom_level_as_buffer",
+				location: gpu_allocator::MemoryLocation::GpuOnly,
+				allocation_scheme: gpu_allocator::vulkan::AllocationScheme::DedicatedBuffer(bottom_as_buffer),
+				linear: true,
+			})
+			.unwrap();
+		unsafe {
+			self.device
+				.bind_buffer_memory(
+					bottom_as_buffer,
+					bottom_as_buffer_alloc.memory(),
+					bottom_as_buffer_alloc.offset(),
+				)
+				.unwrap();
+		}
+
+		// Create acceleration structure
+		let as_create_info = ash::vk::AccelerationStructureCreateInfoKHR::default()
+			.ty(build_info.ty)
+			.size(size_info.acceleration_structure_size)
+			.buffer(bottom_as_buffer)
+			.offset(0);
+		let bottom_as = unsafe { ray_device.create_acceleration_structure(&as_create_info, None) }.unwrap();
+		build_info.dst_acceleration_structure = bottom_as;
+
+		// Create scratch buffer and allocate memory
+		let scratch_buffer = unsafe {
+			self.device
+				.create_buffer(
+					&ash::vk::BufferCreateInfo::default()
+						.size(size_info.build_scratch_size)
+						.usage(
+							ash::vk::BufferUsageFlags::STORAGE_BUFFER
+								| ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+						)
+						.sharing_mode(SharingMode::EXCLUSIVE),
+					None,
+				)
+				.unwrap()
+		};
+		let scratch_buffer_req = unsafe { self.device.get_buffer_memory_requirements(scratch_buffer) };
+		let scratch_alloc = self
+			.memory_allocator()
+			.allocate(&AllocationCreateDesc {
+				requirements: scratch_buffer_req,
+				name: "as_scratch_buffer",
+				location: gpu_allocator::MemoryLocation::GpuOnly,
+				allocation_scheme: gpu_allocator::vulkan::AllocationScheme::DedicatedBuffer(scratch_buffer),
+				linear: true,
+			})
+			.unwrap();
+		unsafe {
+			self.device
+				.bind_buffer_memory(scratch_buffer, scratch_alloc.memory(), scratch_alloc.offset())
+				.unwrap();
+		}
+
+		build_info.scratch_data = ash::vk::DeviceOrHostAddressKHR {
+			device_address: unsafe {
+				self.device
+					.get_buffer_device_address(&ash::vk::BufferDeviceAddressInfo::default().buffer(scratch_buffer))
+			},
+		};
+
+		// Create command pool and record build commands
+		let command_pool = unsafe {
+			self.device
+				.create_command_pool(
+					&ash::vk::CommandPoolCreateInfo::default()
+						.flags(ash::vk::CommandPoolCreateFlags::TRANSIENT)
+						.queue_family_index(self.queue_family_index),
+					None,
+				)
+				.unwrap()
+		};
+
+		let build_command_buffer = unsafe {
+			self.device
+				.allocate_command_buffers(
+					&ash::vk::CommandBufferAllocateInfo::default()
+						.command_buffer_count(1)
+						.command_pool(command_pool)
+						.level(ash::vk::CommandBufferLevel::PRIMARY),
+				)
+				.unwrap()[0]
+		};
+
+		unsafe {
+			self.device
+				.begin_command_buffer(
+					build_command_buffer,
+					&ash::vk::CommandBufferBeginInfo::default()
+						.flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+				)
+				.unwrap();
+
+			ray_device.cmd_build_acceleration_structures(build_command_buffer, &[build_info], &[&[build_range_info]]);
+			self.device.end_command_buffer(build_command_buffer).unwrap();
+
+			let queue = self.queue.lock();
+			self.device
+				.queue_submit(
+					*queue,
+					&[ash::vk::SubmitInfo::default().command_buffers(&[build_command_buffer])],
+					ash::vk::Fence::null(),
+				)
+				.expect("queue submit failed.");
+			self.device.queue_wait_idle(*queue).unwrap();
+			drop(queue);
+
+			// Cleanup temporary resources
+			self.device.free_command_buffers(command_pool, &[build_command_buffer]);
+			self.device.destroy_command_pool(command_pool, None);
+			self.device.destroy_buffer(scratch_buffer, None);
+			self.memory_allocator().free(scratch_alloc).unwrap();
+		}
+
+		// Return acceleration structure device address
+		let as_addr_info =
+			ash::vk::AccelerationStructureDeviceAddressInfoKHR::default().acceleration_structure(bottom_as);
+		unsafe { ray_device.get_acceleration_structure_device_address(&as_addr_info) }
+	}
 }
 
 impl Deref for Ash {
@@ -140,6 +342,8 @@ pub struct AshExtensions {
 	pub mesh_shader: Option<mesh_shader::Device>,
 	pub surface: Option<surface::Instance>,
 	pub swapchain: Option<swapchain::Device>,
+	pub ray_device: Option<ash::khr::acceleration_structure::Device>,
+	pub ray_query_enabled: bool,
 }
 
 impl AshExtensions {
@@ -233,6 +437,10 @@ pub struct AshBindlessDescriptorSet {
 	pub set_layout: DescriptorSetLayout,
 	pub pool: DescriptorPool,
 	pub set: DescriptorSet,
+	// optional ray query pipeline
+	pub ray_query_pipeline_layout: Option<PipelineLayout>,
+	pub ray_query_descriptor_set_layout: Option<DescriptorSetLayout>,
+	pub ray_query_descriptor_set: Option<DescriptorSet>,
 }
 
 impl Deref for AshBindlessDescriptorSet {
@@ -338,6 +546,17 @@ unsafe impl BindlessPlatform for Ash {
 				| DescriptorBindingFlags::PARTIALLY_BOUND; 4];
 			assert_eq!(bindings.len(), binding_flags.len());
 
+			// ray query pipeline
+			let ray_query_bindings = [ash::vk::DescriptorSetLayoutBinding::default()
+				.binding(0)
+				.descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
+				.descriptor_count(counts.buffers)
+				.stage_flags(self.shader_stages)];
+			let ray_query_binding_flags = [DescriptorBindingFlags::UPDATE_AFTER_BIND
+				| DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING
+				| DescriptorBindingFlags::PARTIALLY_BOUND; 1];
+			assert_eq!(ray_query_bindings.len(), ray_query_binding_flags.len());
+
 			let set_layout = self
 				.device
 				.create_descriptor_set_layout(
@@ -365,16 +584,22 @@ unsafe impl BindlessPlatform for Ash {
 				)
 				.unwrap();
 
+			// bindings + ray query bindings
+			let pool_sizes = bindings
+				.iter()
+				.chain(ray_query_bindings.iter())
+				.map(|b| {
+					DescriptorPoolSize::default()
+						.ty(b.descriptor_type)
+						.descriptor_count(b.descriptor_count)
+				})
+				.collect::<Vec<_>>();
 			let pool = self
 				.device
 				.create_descriptor_pool(
 					&DescriptorPoolCreateInfo::default()
 						.flags(DescriptorPoolCreateFlags::UPDATE_AFTER_BIND)
-						.pool_sizes(&bindings.map(|b| {
-							DescriptorPoolSize::default()
-								.ty(b.descriptor_type)
-								.descriptor_count(b.descriptor_count)
-						}))
+						.pool_sizes(&pool_sizes)
 						.max_sets(1),
 					None,
 				)
@@ -392,11 +617,62 @@ unsafe impl BindlessPlatform for Ash {
 				.next()
 				.unwrap();
 
+			let ray_query_descriptor_set_layout = self
+				.device
+				.create_descriptor_set_layout(
+					&DescriptorSetLayoutCreateInfo::default()
+						.flags(DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
+						.bindings(&ray_query_bindings)
+						.push_next(
+							&mut DescriptorSetLayoutBindingFlagsCreateInfo::default().binding_flags(&binding_flags),
+						),
+					None,
+				)
+				.unwrap();
+
+			let ray_query_pipeline_layout = if self.extensions.ray_query_enabled {
+				Some(
+					self.device
+						.create_pipeline_layout(
+							&PipelineLayoutCreateInfo::default()
+								.set_layouts(&[set_layout, ray_query_descriptor_set_layout])
+								.push_constant_ranges(&[PushConstantRange {
+									offset: 0,
+									size: size_of::<BindlessPushConstant>() as u32,
+									stage_flags: self.shader_stages,
+								}]),
+							None,
+						)
+						.unwrap(),
+				)
+			} else {
+				None
+			};
+			let ray_query_descriptor_set = if self.extensions.ray_query_enabled {
+				Some(
+					self.device
+						.allocate_descriptor_sets(
+							&DescriptorSetAllocateInfo::default()
+								.descriptor_pool(pool)
+								.set_layouts(&[set_layout, ray_query_descriptor_set_layout]),
+						)
+						.unwrap()
+						.into_iter()
+						.next()
+						.unwrap(),
+				)
+			} else {
+				None
+			};
+
 			AshBindlessDescriptorSet {
 				pipeline_layout,
 				set_layout,
 				pool,
 				set,
+				ray_query_pipeline_layout,
+				ray_query_descriptor_set_layout: Some(ray_query_descriptor_set_layout),
+				ray_query_descriptor_set,
 			}
 		}
 	}
@@ -533,10 +809,24 @@ unsafe impl BindlessPlatform for Ash {
 					})
 			});
 
+			//todo -- ray query acceleration structures
+
+			// let accel_structs = [top_as];
+			// let mut accel_info =
+			// 	ash::vk::WriteDescriptorSetAccelerationStructureKHR::default().acceleration_structures(&accel_structs);
+
+			// let mut accel_write = WriteDescriptorSet::default()
+			// 	.dst_set(set.ray_query_descriptor_set.unwrap())
+			// 	.dst_binding(0)
+			// 	.dst_array_element(0)
+			// 	.descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
+			// 	.push_next(&mut accel_info);
+
 			let writes = buffers
 				.chain(storage_images)
 				.chain(sampled_images)
 				.chain(samplers)
+				// .chain(std::iter::once(accel_write))
 				.collect::<Vec<_>>();
 			self.device.update_descriptor_sets(&writes, &[]);
 		}
@@ -548,6 +838,14 @@ unsafe impl BindlessPlatform for Ash {
 			self.device.destroy_descriptor_pool(set.pool, None);
 			self.device.destroy_pipeline_layout(set.pipeline_layout, None);
 			self.device.destroy_descriptor_set_layout(set.set_layout, None);
+
+			if let Some(ray_query_descriptor_set) = set.ray_query_descriptor_set {
+				// descriptor sets allocated from pool are freed implicitly
+				self.device
+					.destroy_pipeline_layout(set.ray_query_pipeline_layout.unwrap(), None);
+				self.device
+					.destroy_descriptor_set_layout(set.ray_query_descriptor_set_layout.unwrap(), None);
+			}
 		}
 	}
 

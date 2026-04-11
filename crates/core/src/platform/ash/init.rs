@@ -2,7 +2,7 @@ use crate::platform::ash::{AshCreateInfo, AshExtensions};
 use anyhow::anyhow;
 use ash::Entry;
 use ash::ext::{debug_utils, mesh_shader};
-use ash::khr::{surface, swapchain};
+use ash::khr::{ray_query, surface, swapchain};
 use ash::vk::{
 	ApplicationInfo, Bool32, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT,
 	DebugUtilsMessengerCallbackDataEXT, DebugUtilsMessengerCreateInfoEXT, DeviceCreateInfo, DeviceQueueCreateInfo,
@@ -53,6 +53,10 @@ pub fn required_features_vk13() -> PhysicalDeviceVulkan13Features<'static> {
 	PhysicalDeviceVulkan13Features::default()
 		.synchronization2(true)
 		.dynamic_rendering(true)
+}
+
+pub fn required_features_ray_query() -> PhysicalDeviceRayQueryFeaturesKHR<'static> {
+	PhysicalDeviceRayQueryFeaturesKHR::default().ray_query(true)
 }
 
 pub const LAYER_VALIDATION: &CStr = c"VK_LAYER_KHRONOS_validation";
@@ -128,7 +132,7 @@ impl Default for AshSingleGraphicsQueueCreateInfo<'_> {
 			features_vk11: required_features_vk11(),
 			features_vk12: required_features_vk12(),
 			features_vk13: required_features_vk13(),
-			features_ray_query: PhysicalDeviceRayQueryFeaturesKHR::default().ray_query(true),
+			features_ray_query: required_features_ray_query(),
 			debug: Debuggers::default(),
 			debug_callback: None,
 		}
@@ -301,6 +305,13 @@ pub fn ash_init_single_graphics_queue_with_push_next(
 			.contains(&swapchain::NAME)
 			.then(|| swapchain::Device::new(&instance, &device));
 
+		let ray_device = create_info
+			.extensions
+			.contains(&ray_query::NAME)
+			.then(|| ash::khr::acceleration_structure::Device::new(&instance, &device));
+
+		let ray_query_enabled = create_info.features_ray_query.ray_query == 1;
+
 		Ok(AshCreateInfo {
 			entry,
 			instance,
@@ -316,6 +327,8 @@ pub fn ash_init_single_graphics_queue_with_push_next(
 				debug_utils,
 				surface,
 				swapchain,
+				ray_device,
+				ray_query_enabled,
 				..AshExtensions::default()
 			},
 			destroy: Some(Box::new(move |create_info| {
