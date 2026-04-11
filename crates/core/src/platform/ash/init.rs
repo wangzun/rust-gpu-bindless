@@ -267,7 +267,7 @@ pub fn ash_init_single_graphics_queue_with_push_next(
 					.push_next(&mut create_info.features_vk11)
 					.push_next(&mut create_info.features_vk12)
 					.push_next(&mut create_info.features_vk13)
-					.push_next(&mut create_info.features_ray_tracing)
+					// .push_next(&mut create_info.features_ray_tracing)
 					.push_next(&mut create_info.features_ray_query)
 					.queue_create_infos(&[DeviceQueueCreateInfo::default()
 						.queue_family_index(queue_family_index)
