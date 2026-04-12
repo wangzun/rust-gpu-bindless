@@ -1,11 +1,6 @@
 use glam::UVec3;
-#[cfg(target_arch = "spirv")]
-use glam::Vec3;
 use rust_gpu_bindless_macros::{BufferStruct, bindless};
 use rust_gpu_bindless_shaders::descriptor::{Buffer, Descriptors, MutBuffer, StrongDesc, TransientDesc};
-use spirv_std::ray_tracing::AccelerationStructure;
-#[cfg(target_arch = "spirv")]
-use spirv_std::ray_tracing::{RayFlags, RayQuery};
 #[derive(Copy, Clone, BufferStruct)]
 pub struct Indirection {
 	pub c: StrongDesc<Buffer<f32>>,
@@ -25,19 +20,8 @@ pub fn simple_compute(
 	#[bindless(descriptors)] mut descriptors: Descriptors<'_>,
 	#[bindless(param)] param: &Param<'static>,
 	#[spirv(workgroup_id)] wg_id: UVec3,
-	#[spirv(descriptor_set = 1, binding = 0)] accel: &AccelerationStructure,
 ) {
 	unsafe {
-		#[cfg(target_arch = "spirv")]
-		{
-			spirv_std::ray_query!(let mut handle);
-			handle.initialize(accel, RayFlags::NONE, 0, Vec3::ZERO, 0.0, Vec3::ZERO, 0.0);
-			assert!(handle.proceed());
-			handle.confirm_intersection();
-		}
-		#[cfg(not(target_arch = "spirv"))]
-		let _ = accel;
-
 		let a = param.a;
 
 		let index = wg_id.x as usize;

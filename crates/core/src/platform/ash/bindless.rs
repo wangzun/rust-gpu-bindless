@@ -97,6 +97,142 @@ impl Ash {
 		}
 	}
 
+	pub unsafe fn create_ray_tracing_descriptor_set(&self, counts: DescriptorCounts) -> AshBindlessRayDescriptorSet {
+		unsafe {
+			let bindings = [
+				ash::vk::DescriptorSetLayoutBinding::default()
+					.binding(BINDING_BUFFER)
+					.descriptor_type(DescriptorType::STORAGE_BUFFER)
+					.descriptor_count(counts.buffers)
+					.stage_flags(self.shader_stages),
+				ash::vk::DescriptorSetLayoutBinding::default()
+					.binding(BINDING_STORAGE_IMAGE)
+					.descriptor_type(DescriptorType::STORAGE_IMAGE)
+					.descriptor_count(counts.image)
+					.stage_flags(self.shader_stages),
+				ash::vk::DescriptorSetLayoutBinding::default()
+					.binding(BINDING_SAMPLED_IMAGE)
+					.descriptor_type(DescriptorType::SAMPLED_IMAGE)
+					.descriptor_count(counts.image)
+					.stage_flags(self.shader_stages),
+				ash::vk::DescriptorSetLayoutBinding::default()
+					.binding(BINDING_SAMPLER)
+					.descriptor_type(DescriptorType::SAMPLER)
+					.descriptor_count(counts.samplers)
+					.stage_flags(self.shader_stages),
+			];
+			let binding_flags = [DescriptorBindingFlags::UPDATE_AFTER_BIND
+				| DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING
+				| DescriptorBindingFlags::PARTIALLY_BOUND; 4];
+			assert_eq!(bindings.len(), binding_flags.len());
+
+			// ray query pipeline
+			let ray_query_bindings = [ash::vk::DescriptorSetLayoutBinding::default()
+				.binding(0)
+				.descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
+				.descriptor_count(counts.buffers)
+				.stage_flags(self.shader_stages)];
+			let ray_query_binding_flags = [DescriptorBindingFlags::UPDATE_AFTER_BIND
+				| DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING
+				| DescriptorBindingFlags::PARTIALLY_BOUND; 1];
+			assert_eq!(ray_query_bindings.len(), ray_query_binding_flags.len());
+
+			let set_layout = self
+				.device
+				.create_descriptor_set_layout(
+					&DescriptorSetLayoutCreateInfo::default()
+						.flags(DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
+						.bindings(&bindings)
+						.push_next(
+							&mut DescriptorSetLayoutBindingFlagsCreateInfo::default().binding_flags(&binding_flags),
+						),
+					None,
+				)
+				.unwrap();
+
+			// bindings + ray query bindings
+			let pool_sizes = bindings
+				.iter()
+				.chain(ray_query_bindings.iter())
+				.map(|b| {
+					DescriptorPoolSize::default()
+						.ty(b.descriptor_type)
+						.descriptor_count(b.descriptor_count)
+				})
+				.collect::<Vec<_>>();
+			let pool = self
+				.device
+				.create_descriptor_pool(
+					&DescriptorPoolCreateInfo::default()
+						.flags(DescriptorPoolCreateFlags::UPDATE_AFTER_BIND)
+						.pool_sizes(&pool_sizes)
+						.max_sets(1),
+					None,
+				)
+				.unwrap();
+
+			let set = self
+				.device
+				.allocate_descriptor_sets(
+					&DescriptorSetAllocateInfo::default()
+						.descriptor_pool(pool)
+						.set_layouts(&[set_layout]),
+				)
+				.unwrap()
+				.into_iter()
+				.next()
+				.unwrap();
+
+			let ray_query_descriptor_set_layout = self
+				.device
+				.create_descriptor_set_layout(
+					&DescriptorSetLayoutCreateInfo::default()
+						.flags(DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
+						.bindings(&ray_query_bindings)
+						.push_next(
+							&mut DescriptorSetLayoutBindingFlagsCreateInfo::default().binding_flags(&binding_flags),
+						),
+					None,
+				)
+				.unwrap();
+
+			let pipeline_layout = self
+				.device
+				.create_pipeline_layout(
+					&PipelineLayoutCreateInfo::default()
+						.set_layouts(&[set_layout, ray_query_descriptor_set_layout])
+						.push_constant_ranges(&[PushConstantRange {
+							offset: 0,
+							size: size_of::<BindlessPushConstant>() as u32,
+							stage_flags: self.shader_stages,
+						}]),
+					None,
+				)
+				.unwrap();
+
+			let ray_query_descriptor_set = self
+				.device
+				.allocate_descriptor_sets(
+					&DescriptorSetAllocateInfo::default()
+						.descriptor_pool(pool)
+						.set_layouts(&[ray_query_descriptor_set_layout]),
+				)
+				.unwrap()
+				.into_iter()
+				.next()
+				.unwrap();
+
+			AshBindlessRayDescriptorSet {
+				pipeline_layout,
+				pool,
+				set_layout,
+				set,
+				ray_query_descriptor_set_layout,
+				ray_query_descriptor_set,
+			}
+		}
+	}
+
 	pub unsafe fn build_bottom_level_acceleration_structure(
 		&self,
 		vertex_buffer: ash::vk::Buffer,
@@ -475,10 +611,7 @@ impl Ash {
 			self.device.create_buffer(
 				&ash::vk::BufferCreateInfo::default()
 					.size(size_info.build_scratch_size)
-					.usage(
-						ash::vk::BufferUsageFlags::STORAGE_BUFFER
-							| ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-					)
+					.usage(ash::vk::BufferUsageFlags::STORAGE_BUFFER | ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
 					.sharing_mode(SharingMode::EXCLUSIVE),
 				None,
 			)?
@@ -525,15 +658,10 @@ impl Ash {
 		unsafe {
 			self.device.begin_command_buffer(
 				build_command_buffer,
-				&ash::vk::CommandBufferBeginInfo::default()
-					.flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+				&ash::vk::CommandBufferBeginInfo::default().flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
 			)?;
 
-			ray_device.cmd_build_acceleration_structures(
-				build_command_buffer,
-				&[build_info],
-				&[&[build_range_info]],
-			);
+			ray_device.cmd_build_acceleration_structures(build_command_buffer, &[build_info], &[&[build_range_info]]);
 			self.device.end_command_buffer(build_command_buffer)?;
 
 			let queue = self.queue.lock();
@@ -548,8 +676,7 @@ impl Ash {
 			drop(queue);
 
 			// Cleanup temporary resources
-			self.device
-				.free_command_buffers(command_pool, &[build_command_buffer]);
+			self.device.free_command_buffers(command_pool, &[build_command_buffer]);
 			self.device.destroy_command_pool(command_pool, None);
 			self.device.destroy_buffer(scratch_buffer, None);
 			self.memory_allocator().free(scratch_alloc).unwrap();
@@ -558,6 +685,27 @@ impl Ash {
 		}
 
 		Ok(Some(top_as))
+	}
+
+	pub unsafe fn update_acceleration_structure_descriptor_set(
+		&self,
+		set: &AshBindlessRayDescriptorSet,
+		top_as: ash::vk::AccelerationStructureKHR,
+	) {
+		unsafe {
+			let accel_structs = [top_as];
+			let mut accel_info =
+				ash::vk::WriteDescriptorSetAccelerationStructureKHR::default().acceleration_structures(&accel_structs);
+
+			let accel_write = WriteDescriptorSet::default()
+				.dst_set(set.ray_query_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
+				.push_next(&mut accel_info);
+
+			self.device.update_descriptor_sets(&[accel_write], &[]);
+		}
 	}
 }
 
@@ -693,15 +841,21 @@ pub struct AshImage {
 }
 
 #[derive(Copy, Clone, Debug)]
+pub struct AshBindlessRayDescriptorSet {
+	pub pipeline_layout: PipelineLayout,
+	pub pool: DescriptorPool,
+	pub set_layout: DescriptorSetLayout,
+	pub set: DescriptorSet,
+	pub ray_query_descriptor_set_layout: DescriptorSetLayout,
+	pub ray_query_descriptor_set: DescriptorSet,
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct AshBindlessDescriptorSet {
 	pub pipeline_layout: PipelineLayout,
 	pub set_layout: DescriptorSetLayout,
 	pub pool: DescriptorPool,
 	pub set: DescriptorSet,
-	// optional ray query pipeline
-	pub ray_query_pipeline_layout: Option<PipelineLayout>,
-	pub ray_query_descriptor_set_layout: Option<DescriptorSetLayout>,
-	pub ray_query_descriptor_set: Option<DescriptorSet>,
 }
 
 impl Deref for AshBindlessDescriptorSet {
@@ -807,17 +961,6 @@ unsafe impl BindlessPlatform for Ash {
 				| DescriptorBindingFlags::PARTIALLY_BOUND; 4];
 			assert_eq!(bindings.len(), binding_flags.len());
 
-			// ray query pipeline
-			let ray_query_bindings = [ash::vk::DescriptorSetLayoutBinding::default()
-				.binding(0)
-				.descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
-				.descriptor_count(counts.buffers)
-				.stage_flags(self.shader_stages)];
-			let ray_query_binding_flags = [DescriptorBindingFlags::UPDATE_AFTER_BIND
-				| DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING
-				| DescriptorBindingFlags::PARTIALLY_BOUND; 1];
-			assert_eq!(ray_query_bindings.len(), ray_query_binding_flags.len());
-
 			let set_layout = self
 				.device
 				.create_descriptor_set_layout(
@@ -848,7 +991,6 @@ unsafe impl BindlessPlatform for Ash {
 			// bindings + ray query bindings
 			let pool_sizes = bindings
 				.iter()
-				.chain(ray_query_bindings.iter())
 				.map(|b| {
 					DescriptorPoolSize::default()
 						.ty(b.descriptor_type)
@@ -878,62 +1020,11 @@ unsafe impl BindlessPlatform for Ash {
 				.next()
 				.unwrap();
 
-			let ray_query_descriptor_set_layout = self
-				.device
-				.create_descriptor_set_layout(
-					&DescriptorSetLayoutCreateInfo::default()
-						.flags(DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
-						.bindings(&ray_query_bindings)
-						.push_next(
-							&mut DescriptorSetLayoutBindingFlagsCreateInfo::default().binding_flags(&binding_flags),
-						),
-					None,
-				)
-				.unwrap();
-
-			let ray_query_pipeline_layout = if self.extensions.ray_query_enabled {
-				Some(
-					self.device
-						.create_pipeline_layout(
-							&PipelineLayoutCreateInfo::default()
-								.set_layouts(&[set_layout, ray_query_descriptor_set_layout])
-								.push_constant_ranges(&[PushConstantRange {
-									offset: 0,
-									size: size_of::<BindlessPushConstant>() as u32,
-									stage_flags: self.shader_stages,
-								}]),
-							None,
-						)
-						.unwrap(),
-				)
-			} else {
-				None
-			};
-			let ray_query_descriptor_set = if self.extensions.ray_query_enabled {
-				Some(
-					self.device
-						.allocate_descriptor_sets(
-							&DescriptorSetAllocateInfo::default()
-								.descriptor_pool(pool)
-								.set_layouts(&[set_layout, ray_query_descriptor_set_layout]),
-						)
-						.unwrap()
-						.into_iter()
-						.next()
-						.unwrap(),
-				)
-			} else {
-				None
-			};
-
 			AshBindlessDescriptorSet {
 				pipeline_layout,
 				set_layout,
 				pool,
 				set,
-				ray_query_pipeline_layout,
-				ray_query_descriptor_set_layout: Some(ray_query_descriptor_set_layout),
-				ray_query_descriptor_set,
 			}
 		}
 	}
@@ -1070,24 +1161,10 @@ unsafe impl BindlessPlatform for Ash {
 					})
 			});
 
-			//todo -- ray query acceleration structures
-
-			// let accel_structs = [top_as];
-			// let mut accel_info =
-			// 	ash::vk::WriteDescriptorSetAccelerationStructureKHR::default().acceleration_structures(&accel_structs);
-
-			// let mut accel_write = WriteDescriptorSet::default()
-			// 	.dst_set(set.ray_query_descriptor_set.unwrap())
-			// 	.dst_binding(0)
-			// 	.dst_array_element(0)
-			// 	.descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
-			// 	.push_next(&mut accel_info);
-
 			let writes = buffers
 				.chain(storage_images)
 				.chain(sampled_images)
 				.chain(samplers)
-				// .chain(std::iter::once(accel_write))
 				.collect::<Vec<_>>();
 			self.device.update_descriptor_sets(&writes, &[]);
 		}
@@ -1099,14 +1176,6 @@ unsafe impl BindlessPlatform for Ash {
 			self.device.destroy_descriptor_pool(set.pool, None);
 			self.device.destroy_pipeline_layout(set.pipeline_layout, None);
 			self.device.destroy_descriptor_set_layout(set.set_layout, None);
-
-			if let Some(ray_query_descriptor_set) = set.ray_query_descriptor_set {
-				// descriptor sets allocated from pool are freed implicitly
-				self.device
-					.destroy_pipeline_layout(set.ray_query_pipeline_layout.unwrap(), None);
-				self.device
-					.destroy_descriptor_set_layout(set.ray_query_descriptor_set_layout.unwrap(), None);
-			}
 		}
 	}
 

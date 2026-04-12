@@ -21,6 +21,7 @@ use rust_gpu_bindless_shaders::descriptor::{BindlessPushConstant, ImageType, Tra
 use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::sync::Arc;
 use thiserror::Error;
 

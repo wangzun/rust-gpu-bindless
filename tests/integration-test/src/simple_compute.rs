@@ -19,11 +19,11 @@ fn test_simple_compute_ash() -> anyhow::Result<()> {
 			ash_init_single_graphics_queue(AshSingleGraphicsQueueCreateInfo {
 				debug: debugger(),
 				extensions: &[
-					ash::khr::ray_query::NAME,
-					ash::khr::acceleration_structure::NAME,
+					// ash::khr::ray_query::NAME,
+					// ash::khr::acceleration_structure::NAME,
 					// ash::khr::ray_tracing_pipeline::NAME,
 					// ash::nv::ray_tracing::NAME,
-					ash::khr::deferred_host_operations::NAME,
+					// ash::khr::deferred_host_operations::NAME,
 				],
 				..AshSingleGraphicsQueueCreateInfo::default()
 			})?,
