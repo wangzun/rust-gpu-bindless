@@ -104,7 +104,7 @@ impl Ash {
 		vertex_stride: u64,
 		index_buffer: ash::vk::Buffer,
 		index_count: u32,
-	) -> ash::vk::DeviceAddress {
+	) -> Result<Option<ash::vk::DeviceAddress>, <Ash as BindlessPlatform>::AllocationError> {
 		let ray_device = self.extensions.ray_device.as_ref().expect("Ray tracing not supported");
 
 		// build acceleration structure geometry
@@ -296,7 +296,268 @@ impl Ash {
 		// Return acceleration structure device address
 		let as_addr_info =
 			ash::vk::AccelerationStructureDeviceAddressInfoKHR::default().acceleration_structure(bottom_as);
-		unsafe { ray_device.get_acceleration_structure_device_address(&as_addr_info) }
+		unsafe {
+			Ok(Some(
+				ray_device.get_acceleration_structure_device_address(&as_addr_info),
+			))
+		}
+	}
+
+	pub unsafe fn build_top_level_acceleration_structure(
+		&self,
+		instance_addresses: &[ash::vk::DeviceAddress],
+		transforms: &[glam::Mat4],
+		instance_count: u32,
+	) -> Result<Option<ash::vk::AccelerationStructureKHR>, <Ash as BindlessPlatform>::AllocationError> {
+		let ray_device = self.extensions.ray_device.as_ref().expect("Ray tracing not supported");
+
+		if instance_count == 0 {
+			return Ok(None);
+		}
+
+		assert_eq!(instance_addresses.len(), instance_count as usize);
+		assert_eq!(transforms.len(), instance_count as usize);
+
+		// Build instance data (row-major 3x4 transform matrix)
+		let instances = instance_addresses
+			.iter()
+			.zip(transforms.iter())
+			.map(
+				|(&instance_addr, transform)| ash::vk::AccelerationStructureInstanceKHR {
+					transform: ash::vk::TransformMatrixKHR {
+						matrix: [
+							transform.x_axis.x,
+							transform.y_axis.x,
+							transform.z_axis.x,
+							transform.w_axis.x,
+							transform.x_axis.y,
+							transform.y_axis.y,
+							transform.z_axis.y,
+							transform.w_axis.y,
+							transform.x_axis.z,
+							transform.y_axis.z,
+							transform.z_axis.z,
+							transform.w_axis.z,
+						],
+					},
+					instance_custom_index_and_mask: ash::vk::Packed24_8::new(0, 0xff),
+					instance_shader_binding_table_record_offset_and_flags: ash::vk::Packed24_8::new(
+						0,
+						ash::vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE.as_raw() as u8,
+					),
+					acceleration_structure_reference: ash::vk::AccelerationStructureReferenceKHR {
+						device_handle: instance_addr,
+					},
+				},
+			)
+			.collect::<Vec<_>>();
+
+		// Create instance buffer (CPU-to-GPU so we can map and upload)
+		let instance_buffer_size =
+			(std::mem::size_of::<ash::vk::AccelerationStructureInstanceKHR>() * instances.len()) as u64;
+		let instance_buffer = unsafe {
+			self.device.create_buffer(
+				&ash::vk::BufferCreateInfo::default()
+					.size(instance_buffer_size)
+					.usage(
+						ash::vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+							| ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+					)
+					.sharing_mode(SharingMode::EXCLUSIVE),
+				None,
+			)?
+		};
+		let instance_buffer_req = unsafe { self.device.get_buffer_memory_requirements(instance_buffer) };
+		let instance_buffer_alloc = self.memory_allocator().allocate(&AllocationCreateDesc {
+			requirements: instance_buffer_req,
+			name: "top_level_as_instance_buffer",
+			location: gpu_allocator::MemoryLocation::CpuToGpu,
+			allocation_scheme: gpu_allocator::vulkan::AllocationScheme::DedicatedBuffer(instance_buffer),
+			linear: true,
+		})?;
+		unsafe {
+			self.device.bind_buffer_memory(
+				instance_buffer,
+				instance_buffer_alloc.memory(),
+				instance_buffer_alloc.offset(),
+			)?;
+		}
+
+		// Upload instance data via mapped pointer from gpu-allocator
+		unsafe {
+			let mapped = instance_buffer_alloc
+				.mapped_ptr()
+				.expect("Instance buffer allocation is not host-visible")
+				.as_ptr() as *mut ash::vk::AccelerationStructureInstanceKHR;
+			mapped.copy_from_nonoverlapping(instances.as_ptr(), instances.len());
+		}
+
+		let instance_buffer_address = unsafe {
+			self.device
+				.get_buffer_device_address(&ash::vk::BufferDeviceAddressInfo::default().buffer(instance_buffer))
+		};
+
+		// Build geometry for instances
+		let geometry = ash::vk::AccelerationStructureGeometryKHR::default()
+			.geometry_type(ash::vk::GeometryTypeKHR::INSTANCES)
+			.geometry(ash::vk::AccelerationStructureGeometryDataKHR {
+				instances: ash::vk::AccelerationStructureGeometryInstancesDataKHR::default()
+					.array_of_pointers(false)
+					.data(ash::vk::DeviceOrHostAddressConstKHR {
+						device_address: instance_buffer_address,
+					}),
+			});
+
+		let build_range_info = ash::vk::AccelerationStructureBuildRangeInfoKHR::default()
+			.first_vertex(0)
+			.primitive_count(instance_count)
+			.primitive_offset(0)
+			.transform_offset(0);
+
+		let geometries = [geometry];
+		let mut build_info = ash::vk::AccelerationStructureBuildGeometryInfoKHR::default()
+			.flags(ash::vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+			.geometries(&geometries)
+			.mode(ash::vk::BuildAccelerationStructureModeKHR::BUILD)
+			.ty(ash::vk::AccelerationStructureTypeKHR::TOP_LEVEL);
+
+		// Query required sizes
+		let mut size_info = ash::vk::AccelerationStructureBuildSizesInfoKHR::default();
+		unsafe {
+			ray_device.get_acceleration_structure_build_sizes(
+				ash::vk::AccelerationStructureBuildTypeKHR::DEVICE,
+				&build_info,
+				&[instance_count],
+				&mut size_info,
+			);
+		}
+
+		// Create TLAS buffer and allocate memory
+		let top_as_buffer = unsafe {
+			self.device.create_buffer(
+				&ash::vk::BufferCreateInfo::default()
+					.size(size_info.acceleration_structure_size)
+					.usage(
+						ash::vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
+							| ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+					)
+					.sharing_mode(SharingMode::EXCLUSIVE),
+				None,
+			)?
+		};
+		let top_as_buffer_req = unsafe { self.device.get_buffer_memory_requirements(top_as_buffer) };
+		let top_as_buffer_alloc = self.memory_allocator().allocate(&AllocationCreateDesc {
+			requirements: top_as_buffer_req,
+			name: "top_level_as_buffer",
+			location: gpu_allocator::MemoryLocation::GpuOnly,
+			allocation_scheme: gpu_allocator::vulkan::AllocationScheme::DedicatedBuffer(top_as_buffer),
+			linear: true,
+		})?;
+		unsafe {
+			self.device.bind_buffer_memory(
+				top_as_buffer,
+				top_as_buffer_alloc.memory(),
+				top_as_buffer_alloc.offset(),
+			)?;
+		}
+
+		// Create the top-level acceleration structure
+		let as_create_info = ash::vk::AccelerationStructureCreateInfoKHR::default()
+			.ty(build_info.ty)
+			.size(size_info.acceleration_structure_size)
+			.buffer(top_as_buffer)
+			.offset(0);
+		let top_as = unsafe { ray_device.create_acceleration_structure(&as_create_info, None)? };
+		build_info.dst_acceleration_structure = top_as;
+
+		// Create scratch buffer and allocate memory
+		let scratch_buffer = unsafe {
+			self.device.create_buffer(
+				&ash::vk::BufferCreateInfo::default()
+					.size(size_info.build_scratch_size)
+					.usage(
+						ash::vk::BufferUsageFlags::STORAGE_BUFFER
+							| ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+					)
+					.sharing_mode(SharingMode::EXCLUSIVE),
+				None,
+			)?
+		};
+		let scratch_buffer_req = unsafe { self.device.get_buffer_memory_requirements(scratch_buffer) };
+		let scratch_alloc = self.memory_allocator().allocate(&AllocationCreateDesc {
+			requirements: scratch_buffer_req,
+			name: "tlas_scratch_buffer",
+			location: gpu_allocator::MemoryLocation::GpuOnly,
+			allocation_scheme: gpu_allocator::vulkan::AllocationScheme::DedicatedBuffer(scratch_buffer),
+			linear: true,
+		})?;
+		unsafe {
+			self.device
+				.bind_buffer_memory(scratch_buffer, scratch_alloc.memory(), scratch_alloc.offset())?;
+		}
+
+		build_info.scratch_data = ash::vk::DeviceOrHostAddressKHR {
+			device_address: unsafe {
+				self.device
+					.get_buffer_device_address(&ash::vk::BufferDeviceAddressInfo::default().buffer(scratch_buffer))
+			},
+		};
+
+		// Create command pool and record build commands
+		let command_pool = unsafe {
+			self.device.create_command_pool(
+				&ash::vk::CommandPoolCreateInfo::default()
+					.flags(ash::vk::CommandPoolCreateFlags::TRANSIENT)
+					.queue_family_index(self.queue_family_index),
+				None,
+			)?
+		};
+
+		let build_command_buffer = unsafe {
+			self.device.allocate_command_buffers(
+				&ash::vk::CommandBufferAllocateInfo::default()
+					.command_buffer_count(1)
+					.command_pool(command_pool)
+					.level(ash::vk::CommandBufferLevel::PRIMARY),
+			)?[0]
+		};
+
+		unsafe {
+			self.device.begin_command_buffer(
+				build_command_buffer,
+				&ash::vk::CommandBufferBeginInfo::default()
+					.flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+			)?;
+
+			ray_device.cmd_build_acceleration_structures(
+				build_command_buffer,
+				&[build_info],
+				&[&[build_range_info]],
+			);
+			self.device.end_command_buffer(build_command_buffer)?;
+
+			let queue = self.queue.lock();
+			self.device
+				.queue_submit(
+					*queue,
+					&[ash::vk::SubmitInfo::default().command_buffers(&[build_command_buffer])],
+					ash::vk::Fence::null(),
+				)
+				.expect("queue submit failed.");
+			self.device.queue_wait_idle(*queue)?;
+			drop(queue);
+
+			// Cleanup temporary resources
+			self.device
+				.free_command_buffers(command_pool, &[build_command_buffer]);
+			self.device.destroy_command_pool(command_pool, None);
+			self.device.destroy_buffer(scratch_buffer, None);
+			self.memory_allocator().free(scratch_alloc).unwrap();
+			self.device.destroy_buffer(instance_buffer, None);
+			self.memory_allocator().free(instance_buffer_alloc).unwrap();
+		}
+
+		Ok(Some(top_as))
 	}
 }
 
