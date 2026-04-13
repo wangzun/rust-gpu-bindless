@@ -12,6 +12,8 @@ workspace = true
 [features]
 # Enable the ash platform to be available.
 ash = []
+# Enable the wgpu-hal platform to be available.
+wgpu-hal = ["dep:wgpu-hal", "dep:wgpu-types", "dep:naga"]
 
 [dependencies]
 # members
@@ -22,6 +24,11 @@ spirv-std = { workspace = true }
 ash = { workspace = true }
 gpu-allocator = { workspace = true }
 presser = { workspace = true }
+
+# wgpu-hal (optional)
+naga = { workspace = true, optional = true }
+wgpu-hal = { workspace = true, optional = true }
+wgpu-types = { workspace = true, optional = true }
 
 # async
 futures = { workspace = true }

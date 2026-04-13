@@ -1,4 +1,6 @@
 pub mod ash;
+#[cfg(feature = "wgpu-hal")]
+pub mod wgpu_hal;
 mod bindless;
 mod bindless_pipeline;
 

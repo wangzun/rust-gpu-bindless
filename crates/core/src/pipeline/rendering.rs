@@ -8,7 +8,6 @@ use crate::pipeline::mesh_graphics_pipeline::BindlessMeshGraphicsPipeline;
 use crate::pipeline::mut_or_shared::MutOrSharedBuffer;
 use crate::pipeline::recording::{HasResourceContext, Recording, RecordingError};
 use crate::pipeline::rendering::RenderingError::MismatchedColorAttachmentCount;
-use crate::platform::ash::Ash;
 use crate::platform::{BindlessPipelinePlatform, RenderingContext};
 use glam::{IVec2, UVec2};
 use rust_gpu_bindless_shaders::buffer_content::BufferStruct;
@@ -91,7 +90,7 @@ impl<'a: 'b, 'b, P: BindlessPipelinePlatform> DerefMut for Rendering<'a, 'b, P> 
 
 unsafe impl<'a: 'b, 'b, P: BindlessPipelinePlatform> HasResourceContext<'a, P> for Rendering<'a, 'b, P> {
 	#[inline]
-	fn bindless(&self) -> &Bindless<Ash> {
+	fn bindless(&self) -> &Bindless<P> {
 		self.platform.bindless()
 	}
 

@@ -13,4 +13,5 @@ extern crate std;
 pub mod buffer_barriers;
 pub mod color;
 pub mod simple_compute;
+pub mod terrain;
 pub mod triangle;

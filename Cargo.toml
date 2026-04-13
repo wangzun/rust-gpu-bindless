@@ -51,6 +51,11 @@ ash-window = "0.13.0"
 gpu-allocator = { version = "0.27.0", features = ["vulkan"] }
 presser = "0.3.1"
 
+# wgpu-hal
+naga = "29.0.1"
+wgpu-hal = { version = "29.0.1", features = ["vulkan"] }
+wgpu-types = "29.0.1"
+
 winit = { version = "0.30" }
 
 # rust-gpu

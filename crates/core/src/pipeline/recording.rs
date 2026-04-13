@@ -8,7 +8,6 @@ use crate::pipeline::access_type::{
 use crate::pipeline::compute_pipeline::BindlessComputePipeline;
 use crate::pipeline::mut_or_shared::{MutOrSharedBuffer, MutOrSharedImage};
 use crate::pipeline::rendering::RenderingError;
-use crate::platform::ash::Ash;
 use crate::platform::{BindlessPipelinePlatform, RecordingContext};
 use rust_gpu_bindless_shaders::buffer_content::{BufferContent, BufferStruct};
 use rust_gpu_bindless_shaders::descriptor::{ImageType, TransientAccess};
@@ -47,14 +46,14 @@ impl<P: BindlessPipelinePlatform> DerefMut for Recording<'_, P> {
 
 pub unsafe trait HasResourceContext<'a, P: BindlessPipelinePlatform>: TransientAccess<'a> + Sized {
 	/// Gets the [`Bindless`] of this execution
-	fn bindless(&self) -> &Bindless<Ash>;
+	fn bindless(&self) -> &Bindless<P>;
 
 	fn resource_context(&self) -> &'a P::RecordingResourceContext;
 }
 
 unsafe impl<'a, P: BindlessPipelinePlatform> HasResourceContext<'a, P> for Recording<'a, P> {
 	#[inline]
-	fn bindless(&self) -> &Bindless<Ash> {
+	fn bindless(&self) -> &Bindless<P> {
 		self.platform.bindless()
 	}
 
