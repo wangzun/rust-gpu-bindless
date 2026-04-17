@@ -1,5 +1,6 @@
 use crate::descriptor::{
-	Bindless, BindlessAllocationScheme, BindlessBufferCreateInfo, BindlessBufferUsage, BufferSlot, ImageSlot, MutDescExt,
+	Bindless, BindlessAllocationScheme, BindlessBufferCreateInfo, BindlessBufferUsage, BufferSlot, ImageSlot,
+	MutDescExt,
 };
 use crate::pipeline::{
 	BindlessComputePipeline, BufferAccess, BufferAccessType, HasResourceContext, ImageAccess, ImageAccessType,
@@ -7,7 +8,7 @@ use crate::pipeline::{
 	TransferReadable, TransferWriteable,
 };
 use crate::platform::wgpu_hal::bindless::{WgpuHal, WgpuHalBuffer};
-use crate::platform::wgpu_hal::bindless_pipeline::{WgpuHalPipelineInner};
+use crate::platform::wgpu_hal::bindless_pipeline::WgpuHalPipelineInner;
 use crate::platform::wgpu_hal::executing::{WgpuHalExecution, WgpuHalPendingExecution};
 use crate::platform::{BindlessPipelinePlatform, RecordingContext, RecordingResourceContext};
 use rust_gpu_bindless_shaders::buffer_content::{BufferContent, BufferStruct};

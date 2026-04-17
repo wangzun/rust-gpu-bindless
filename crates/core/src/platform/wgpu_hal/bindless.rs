@@ -9,9 +9,7 @@ use crate::platform::BindlessPlatform;
 use crate::platform::wgpu_hal::convert::{
 	bindless_image_type_to_wgpu_dimension, bindless_image_type_to_wgpu_view_dimension,
 };
-use crate::platform::wgpu_hal::executing::{
-	WgpuHalExecutionManager, WgpuHalPendingExecution,
-};
+use crate::platform::wgpu_hal::executing::{WgpuHalExecutionManager, WgpuHalPendingExecution};
 use parking_lot::Mutex;
 use presser::Slab;
 use rust_gpu_bindless_shaders::descriptor::{
@@ -273,10 +271,8 @@ unsafe impl<A: Api> BindlessPlatform for WgpuHal<A> {
 			if let Some(bg) = set.bind_group.into_inner() {
 				self.device.destroy_bind_group(bg);
 			}
-			self.device
-				.destroy_pipeline_layout(set.pipeline_layout);
-			self.device
-				.destroy_bind_group_layout(set.bind_group_layout);
+			self.device.destroy_pipeline_layout(set.pipeline_layout);
+			self.device.destroy_bind_group_layout(set.bind_group_layout);
 		}
 	}
 
@@ -361,10 +357,7 @@ unsafe impl<A: Api> BindlessPlatform for WgpuHal<A> {
 				None
 			};
 
-			Ok(WgpuHalImage {
-				texture,
-				texture_view,
-			})
+			Ok(WgpuHalImage { texture, texture_view })
 		}
 	}
 

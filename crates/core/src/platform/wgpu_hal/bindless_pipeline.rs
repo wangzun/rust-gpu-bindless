@@ -94,11 +94,7 @@ impl<A: Api, S: ShaderType, T: BufferStruct> Drop for WgpuHalShaderModule<'_, A,
 	fn drop(&mut self) {
 		unsafe {
 			let module = ManuallyDrop::take(&mut self.module);
-			self.bindless
-				.platform
-				.create_info
-				.device
-				.destroy_shader_module(module);
+			self.bindless.platform.create_info.device.destroy_shader_module(module);
 		}
 	}
 }

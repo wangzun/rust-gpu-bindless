@@ -6,7 +6,9 @@ use crate::pipeline::{
 };
 use crate::platform::RenderingContext;
 use crate::platform::wgpu_hal::bindless::WgpuHal;
-use crate::platform::wgpu_hal::recording::{WgpuHalRecordingContext, WgpuHalRecordingError, WgpuHalRecordingResourceContext};
+use crate::platform::wgpu_hal::recording::{
+	WgpuHalRecordingContext, WgpuHalRecordingError, WgpuHalRecordingResourceContext,
+};
 use glam::UVec2;
 use rust_gpu_bindless_shaders::buffer_content::BufferStruct;
 use rust_gpu_bindless_shaders::descriptor::TransientAccess;

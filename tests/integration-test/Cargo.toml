@@ -13,6 +13,7 @@ workspace = true
 # members
 rust-gpu-bindless-core = { workspace = true, features = ["ash"] }
 rust-gpu-bindless-winit = { workspace = true, features = ["ash"] }
+rust-gpu-bindless-egui = { workspace = true, features = ["winit"] }
 integration-test-shader = { workspace = true }
 
 # vulkan
@@ -28,6 +29,10 @@ pollster = { workspace = true }
 anyhow = { workspace = true }
 approx = { workspace = true }
 spirv-cross2 = { version = "0.6.0", features = ["full"] }
+png = "0.17"
+
+# egui
+egui = { workspace = true }
 
 
 [build-dependencies]
