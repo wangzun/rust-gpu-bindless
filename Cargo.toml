@@ -13,6 +13,7 @@ members = [
 	"crates/winit",
 	"tests/integration-test",
 	"tests/integration-test-shader",
+	"crates/bevy", "tests/bevy-test",
 ]
 resolver = "2"
 

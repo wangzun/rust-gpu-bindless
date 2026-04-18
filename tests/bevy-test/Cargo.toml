@@ -1,0 +1,37 @@
+[package]
+name = "bevy-test"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bevy = { version = "0.18.1", default-features = false, features = [
+    "std",
+    "debug",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_state",
+    "bevy_camera",
+    "free_camera",
+    "mouse",
+    "multi_threaded",
+    "x11",
+    "wayland",
+] }
+rust-gpu-bindless-bevy = { package = "bevy", path = "../../crates/bevy" }
+rust-gpu-bindless-core = { workspace = true, features = ["ash"] }
+rust-gpu-bindless-egui = { workspace = true }
+integration-test = { workspace = true }
+integration-test-shader = { workspace = true }
+ash = { workspace = true }
+winit = { workspace = true }
+glam = { workspace = true }
+smallvec = { workspace = true }
+anyhow = { workspace = true }
+egui = { workspace = true }
+egui-winit = { workspace = true }
+
+[lints]
+workspace = true

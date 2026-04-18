@@ -320,7 +320,7 @@ where
 	// EventLoop loop
 	#[allow(deprecated)]
 	event_loop
-		.run(move |event, b| {
+		.run(move |event: Event<()>, b| {
 			match event {
 				Event::UserEvent(_) => {
 					if let Some(forward_msg) = forward_msg.take() {

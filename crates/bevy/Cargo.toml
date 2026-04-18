@@ -1,0 +1,30 @@
+[package]
+name = "bevy"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bevy = { version = "0.18.1", default-features = false, features = [
+    "std",
+    "debug",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_state",
+    "bevy_camera",
+    "free_camera",
+    "mouse",
+    "multi_threaded",
+] }
+raw-window-handle = "0.6.2"
+rust-gpu-bindless-core = { workspace = true, features = ["ash"] }
+ash = { workspace = true }
+ash-window = { workspace = true }
+rust-gpu-bindless-winit = { workspace = true, features = ["ash"] }
+anyhow = { workspace = true }
+
+
+[lints]
+workspace = true
