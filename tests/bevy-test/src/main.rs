@@ -4,16 +4,17 @@ use ash::vk::{
 	PipelineColorBlendStateCreateInfo, PolygonMode, PrimitiveTopology,
 };
 use bevy::app::AppExit;
+use bevy::camera::{Camera3d, PerspectiveProjection, Projection};
+use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
-use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseButton, MouseScrollUnit};
 use bevy::prelude::*;
 use bevy::time::Real;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowCloseRequested};
+use bevy::window::{Window, WindowCloseRequested};
 use bevy::winit::{DisplayHandleWrapper, RawWinitWindowEvent, WINIT_WINDOWS};
 use egui::Context as EguiContext;
-use glam::{EulerRot, Quat, UVec2, Vec2, Vec3};
+use glam::{Mat4, UVec2};
 use integration_test_shader::terrain::{BufferAParam, BufferBParam, Param};
 use rust_gpu_bindless_bevy::{BindlessPlugin, BindlessRenderManagerState};
 use rust_gpu_bindless_core::descriptor::{
@@ -28,9 +29,10 @@ use rust_gpu_bindless_core::pipeline::{
 };
 use rust_gpu_bindless_core::platform::BindlessPipelinePlatform;
 use rust_gpu_bindless_core::platform::ash::Ash;
-use rust_gpu_bindless_egui::renderer::{EguiRenderContext, EguiRenderOutput, EguiRenderPipeline, EguiRenderer, EguiRenderingOptions};
+use rust_gpu_bindless_egui::renderer::{
+	EguiRenderContext, EguiRenderOutput, EguiRenderPipeline, EguiRenderer, EguiRenderingOptions,
+};
 use smallvec::SmallVec;
-use std::f32::consts::PI;
 use winit::window::WindowId;
 
 fn main() {
@@ -40,20 +42,13 @@ fn main() {
 				title: "swapchain triangle".into(),
 				..Default::default()
 			}),
-			..Default::default()
-		}))
-		.add_plugins(BindlessPlugin)
-		.insert_resource(DemoRenderState::default())
-		.insert_resource(FreeCameraController::new(
-			Vec3::new(-0.91287905, 1.7548301, -2.8095529),
-			-0.43,
-			-2.8274333,
-		))
-		.add_systems(
-			Update,
-			(handle_close_requests, update_camera_controller, render_frame).chain(),
-		)
-		.run();
+				..Default::default()
+			}))
+			.add_plugins((BindlessPlugin, FreeCameraPlugin))
+			.insert_resource(DemoRenderState::default())
+			.add_systems(Startup, spawn_camera)
+			.add_systems(Update, (handle_close_requests, render_frame).chain())
+			.run();
 }
 
 #[derive(Resource, Default)]
@@ -70,55 +65,51 @@ fn handle_close_requests(mut close_requests: MessageReader<WindowCloseRequested>
 	}
 }
 
-fn update_camera_controller(
-	time: Res<Time<Real>>,
-	accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
-	accumulated_mouse_scroll: Res<AccumulatedMouseScroll>,
-	mouse_buttons: Res<ButtonInput<MouseButton>>,
-	key_input: Res<ButtonInput<KeyCode>>,
-	mut cursor_options: Query<&mut CursorOptions, With<PrimaryWindow>>,
-	mut camera: ResMut<FreeCameraController>,
-) {
-	let right_mouse_held = mouse_buttons.pressed(MouseButton::Right);
-	if let Ok(mut cursor) = cursor_options.single_mut() {
-		cursor.visible = !right_mouse_held;
-		cursor.grab_mode = if right_mouse_held {
-			CursorGrabMode::Locked
-		} else {
-			CursorGrabMode::None
-		};
-	}
+#[derive(Component)]
+struct DemoCamera;
 
-	let scroll_delta = match accumulated_mouse_scroll.unit {
-		MouseScrollUnit::Line => accumulated_mouse_scroll.delta.y,
-		MouseScrollUnit::Pixel => accumulated_mouse_scroll.delta.y / 28.0,
-	};
+const CAMERA_FOV_Y_RADIANS: f32 = 11.0 * std::f32::consts::PI / 180.0;
 
-	camera.update(
-		time.delta_secs(),
-		Vec2::new(accumulated_mouse_motion.delta.x, accumulated_mouse_motion.delta.y),
-		scroll_delta,
-		right_mouse_held,
-		|key| key_input.pressed(key),
-	);
+fn spawn_camera(mut commands: Commands) {
+	commands.spawn((
+		Camera3d::default(),
+		Projection::Perspective(PerspectiveProjection {
+			fov: CAMERA_FOV_Y_RADIANS,
+			..default()
+		}),
+		Transform {
+			translation: bevy::math::Vec3::new(-0.91287905, 1.7548301, -2.8095529),
+			rotation: bevy::math::Quat::from_euler(bevy::math::EulerRot::ZYX, 0.0, -2.8274333, -0.43),
+			..default()
+		},
+		FreeCamera {
+			sensitivity: 0.2,
+			friction: 40.0,
+			walk_speed: 5.0,
+			run_speed: 15.0,
+			scroll_factor: 0.04879016,
+			..default()
+		},
+		DemoCamera,
+	));
 }
 
 fn render_frame(
 	mut bindless_state: NonSendMut<BindlessRenderManagerState>,
 	mut demo_state: ResMut<DemoRenderState>,
-	camera: Res<FreeCameraController>,
+	camera_query: Query<(&Transform, &Projection), With<DemoCamera>>,
 	time: Res<Time<Real>>,
 	display_handle: Res<DisplayHandleWrapper>,
 	key_input: Res<ButtonInput<KeyCode>>,
 	mut raw_events: MessageReader<RawWinitWindowEvent>,
 ) {
-	if let Err(err) = render_frame_inner(
-		&mut bindless_state,
-		&mut demo_state,
-		&camera,
-		&time,
-		&display_handle,
-		&key_input,
+		if let Err(err) = render_frame_inner(
+			&mut bindless_state,
+			&mut demo_state,
+			&camera_query,
+			&time,
+			&display_handle,
+			&key_input,
 		&mut raw_events,
 	) {
 		panic!("{err:#}");
@@ -128,7 +119,7 @@ fn render_frame(
 fn render_frame_inner(
 	bindless_state: &mut BindlessRenderManagerState,
 	demo_state: &mut DemoRenderState,
-	camera: &FreeCameraController,
+	camera_query: &Query<(&Transform, &Projection), With<DemoCamera>>,
 	time: &Time<Real>,
 	display_handle: &DisplayHandleWrapper,
 	key_input: &ButtonInput<KeyCode>,
@@ -136,6 +127,14 @@ fn render_frame_inner(
 ) -> Result<()> {
 	let Some(manager) = bindless_state.get_mut() else {
 		return Ok(());
+	};
+	let Ok((camera_transform, camera_projection)) = camera_query.single() else {
+		return Ok(());
+	};
+	let camera_world = Mat4::from_cols_array(&camera_transform.to_matrix().to_cols_array());
+	let camera_fov_y_radians = match camera_projection {
+		Projection::Perspective(perspective) => perspective.fov,
+		_ => return Ok(()),
 	};
 
 	let DemoRenderState {
@@ -176,16 +175,16 @@ fn render_frame_inner(
 	}
 
 	fps.update(time.delta_secs());
-	let fps_value = fps.fps();
-	let frame_ms = fps.frame_ms();
-	let display_mode = renderer.display_mode_name();
+		let fps_value = fps.fps();
+		let frame_ms = fps.frame_ms();
+		let display_mode = renderer.display_mode_name();
 
-	let (egui_render, egui_scale) = egui.run(|ctx| draw_perf_overlay(ctx, fps_value, frame_ms, display_mode))?;
-	let rt = manager.acquire_image(None)?;
-	let rt = renderer.draw(rt, camera)?;
-	let rt = manager.bindless().execute(|cmd| {
-		let mut rt = rt.access_dont_care::<ColorAttachment>(cmd)?;
-		egui_render
+		let (egui_render, egui_scale) = egui.run(|ctx| draw_perf_overlay(ctx, fps_value, frame_ms, display_mode))?;
+		let rt = manager.acquire_image(None)?;
+		let rt = renderer.draw(rt, camera_world, camera_fov_y_radians)?;
+		let rt = manager.bindless().execute(|cmd| {
+			let mut rt = rt.access_dont_care::<ColorAttachment>(cmd)?;
+			egui_render
 			.draw(
 				egui_pipeline,
 				cmd,
@@ -227,10 +226,7 @@ fn draw_perf_overlay(ctx: &egui::Context, fps_value: f32, frame_ms: f32, display
 		});
 }
 
-fn with_winit_window<R>(
-	window_entity: Entity,
-	f: impl FnOnce(&winit::window::Window) -> Result<R>,
-) -> Result<R> {
+fn with_winit_window<R>(window_entity: Entity, f: impl FnOnce(&winit::window::Window) -> Result<R>) -> Result<R> {
 	WINIT_WINDOWS.with_borrow(|winit_windows| {
 		let window = winit_windows
 			.get_window(window_entity)
@@ -286,8 +282,9 @@ impl<P: rust_gpu_bindless_egui::platform::EguiBindlessPlatform> BevyEguiContext<
 
 	fn run(&mut self, run_ui: impl FnMut(&egui::Context)) -> Result<(EguiRenderOutput<'_, P>, f32)> {
 		let scale = self.update_viewport_info(false)?.recip();
-		let raw_input =
-			with_winit_window(self.window_entity, |window| Ok(self.winit_state.take_egui_input(window)))?;
+		let raw_input = with_winit_window(self.window_entity, |window| {
+			Ok(self.winit_state.take_egui_input(window))
+		})?;
 		let (render, platform_output) = self.render_ctx.run(raw_input, run_ui)?;
 		with_winit_window(self.window_entity, |window| {
 			self.winit_state.handle_platform_output(window, platform_output);
@@ -365,7 +362,7 @@ pub struct TriangleRenderer<P: BindlessPipelinePlatform> {
 }
 
 const VERTEX_CNT: usize = 3;
-const MAP_RESOLUTION: u32 = 1024;
+const MAP_RESOLUTION: u32 = 4096;
 const MAP_FORMAT: Format = Format::R16G16B16A16_SFLOAT;
 const DETAIL_FORMAT: Format = Format::R16G16B16A16_SFLOAT;
 
@@ -472,9 +469,9 @@ impl<P: BindlessPipelinePlatform> TriangleRenderer<P> {
 	pub fn draw(
 		&mut self,
 		rt: MutDesc<P, MutImage<Image2d>>,
-		camera: &FreeCameraController,
+		camera_world: Mat4,
+		camera_fov_y_radians: f32,
 	) -> Result<MutDesc<P, MutImage<Image2d>>> {
-		let (cam_right, cam_up, cam_forward) = camera.basis();
 		let map_resolution = self.map_extent.as_vec2();
 		let frame_time = self.terrain_time;
 		let rt_resolution = UVec2::from(rt.extent()).as_vec2();
@@ -577,127 +574,24 @@ impl<P: BindlessPipelinePlatform> TriangleRenderer<P> {
 							instance_count: 1,
 							..DrawIndirectCommand::default()
 						},
-						Param {
-							map_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(map_id) },
-							detail_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(detail_id) },
-							sampler,
-							resolution: rt_resolution,
-							map_resolution,
-							time: frame_time,
-							display_mode: self.display_mode,
-							camera_pos: camera.position,
-							camera_right: cam_right,
-							camera_up: cam_up,
-							camera_forward: cam_forward,
-						},
-					)?;
-					Ok(())
+							Param {
+								map_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(map_id) },
+								detail_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(detail_id) },
+								sampler,
+								resolution: rt_resolution,
+								map_resolution,
+								time: frame_time,
+								display_mode: self.display_mode,
+								camera_fov_y_radians,
+								camera_world,
+							},
+						)?;
+						Ok(())
 				},
 			)?;
 
 			Ok(rt.into_desc())
 		})?;
 		Ok(rt)
-	}
-}
-
-const RADIANS_PER_DOT: f32 = 1.0 / 180.0;
-
-#[derive(Resource)]
-pub struct FreeCameraController {
-	pub position: Vec3,
-	pub pitch: f32,
-	pub yaw: f32,
-	pub velocity: Vec3,
-	pub speed_multiplier: f32,
-	pub sensitivity: f32,
-	pub walk_speed: f32,
-	pub run_speed: f32,
-	pub scroll_factor: f32,
-	pub friction: f32,
-}
-
-impl FreeCameraController {
-	pub fn new(position: Vec3, pitch: f32, yaw: f32) -> Self {
-		Self {
-			position,
-			pitch,
-			yaw,
-			velocity: Vec3::ZERO,
-			speed_multiplier: 1.0,
-			sensitivity: 0.2,
-			walk_speed: 5.0,
-			run_speed: 15.0,
-			scroll_factor: 0.04879016,
-			friction: 40.0,
-		}
-	}
-
-	pub fn basis(&self) -> (Vec3, Vec3, Vec3) {
-		let rotation = Quat::from_euler(EulerRot::ZYX, 0.0, self.yaw, self.pitch);
-		let forward = rotation * Vec3::NEG_Z;
-		let right = rotation * Vec3::X;
-		let up = rotation * Vec3::Y;
-		(right, up, forward)
-	}
-
-	pub fn update(
-		&mut self,
-		dt: f32,
-		mouse_delta: Vec2,
-		scroll_delta: f32,
-		cursor_grabbed: bool,
-		key_pressed: impl Fn(KeyCode) -> bool,
-	) {
-		if scroll_delta != 0.0 {
-			self.speed_multiplier *= (self.scroll_factor * scroll_delta).exp();
-			self.speed_multiplier = self.speed_multiplier.clamp(f32::EPSILON, f32::MAX);
-		}
-
-		if cursor_grabbed && mouse_delta != Vec2::ZERO {
-			self.pitch = (self.pitch - mouse_delta.y * RADIANS_PER_DOT * self.sensitivity).clamp(-PI / 2.0, PI / 2.0);
-			self.yaw -= mouse_delta.x * RADIANS_PER_DOT * self.sensitivity;
-		}
-
-		let mut axis = Vec3::ZERO;
-		if key_pressed(KeyCode::KeyW) {
-			axis.z += 1.0;
-		}
-		if key_pressed(KeyCode::KeyS) {
-			axis.z -= 1.0;
-		}
-		if key_pressed(KeyCode::KeyD) {
-			axis.x += 1.0;
-		}
-		if key_pressed(KeyCode::KeyA) {
-			axis.x -= 1.0;
-		}
-		if key_pressed(KeyCode::KeyE) {
-			axis.y += 1.0;
-		}
-		if key_pressed(KeyCode::KeyQ) {
-			axis.y -= 1.0;
-		}
-
-		if axis != Vec3::ZERO {
-			let max_speed = if key_pressed(KeyCode::ShiftLeft) {
-				self.run_speed
-			} else {
-				self.walk_speed
-			} * self.speed_multiplier;
-			self.velocity = axis.normalize() * max_speed;
-		} else {
-			let decay = (-self.friction * dt).exp();
-			self.velocity *= decay;
-			if self.velocity.length_squared() < 1e-6 {
-				self.velocity = Vec3::ZERO;
-			}
-		}
-
-		if self.velocity != Vec3::ZERO {
-			let (right, _up, forward) = self.basis();
-			self.position +=
-				self.velocity.x * dt * right + self.velocity.y * dt * Vec3::Y + self.velocity.z * dt * forward;
-		}
 	}
 }

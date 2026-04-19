@@ -2,7 +2,7 @@ use ash::vk::{
 	ColorComponentFlags, CullModeFlags, FrontFace, PipelineColorBlendAttachmentState,
 	PipelineColorBlendStateCreateInfo, PolygonMode, PrimitiveTopology,
 };
-use glam::{EulerRot, Quat, UVec2, Vec2, Vec3};
+use glam::{EulerRot, Mat4, Quat, UVec2, Vec2, Vec3};
 use integration_test::debugger;
 use integration_test_shader::terrain::{BufferAParam, BufferBParam, Param};
 use rust_gpu_bindless_core::descriptor::{
@@ -241,9 +241,10 @@ pub struct TriangleRenderer<P: BindlessPipelinePlatform> {
 }
 
 const VERTEX_CNT: usize = 3;
-const MAP_RESOLUTION: u32 = 1024;
+const MAP_RESOLUTION: u32 = 4096;
 const MAP_FORMAT: Format = Format::R16G16B16A16_SFLOAT;
 const DETAIL_FORMAT: Format = Format::R16G16B16A16_SFLOAT;
+const CAMERA_FOV_Y_RADIANS: f32 = 11.0 * PI / 180.0;
 
 impl<P: BindlessPipelinePlatform> TriangleRenderer<P> {
 	pub fn new(bindless: &Bindless<P>, rt_format: Format) -> anyhow::Result<Self> {
@@ -351,6 +352,12 @@ impl<P: BindlessPipelinePlatform> TriangleRenderer<P> {
 		camera: &FreeCameraController,
 	) -> anyhow::Result<MutDesc<P, MutImage<Image2d>>> {
 		let (cam_right, cam_up, cam_forward) = camera.basis();
+		let camera_world = Mat4::from_cols(
+			cam_right.extend(0.0),
+			cam_up.extend(0.0),
+			(-cam_forward).extend(0.0),
+			camera.position.extend(1.0),
+		);
 		let map_resolution = self.map_extent.as_vec2();
 		let frame_time = self.terrain_time;
 		let rt_resolution = UVec2::from(rt.extent()).as_vec2();
@@ -453,22 +460,20 @@ impl<P: BindlessPipelinePlatform> TriangleRenderer<P> {
 							instance_count: 1,
 							..DrawIndirectCommand::default()
 						},
-						Param {
-							map_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(map_id) },
-							detail_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(detail_id) },
-							sampler,
-							resolution: rt_resolution,
-							map_resolution,
-							time: frame_time,
-							display_mode: self.display_mode,
-							camera_pos: camera.position,
-							camera_right: cam_right,
-							camera_up: cam_up,
-							camera_forward: cam_forward,
-						},
-					)?;
-					Ok(())
-				},
+							Param {
+								map_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(map_id) },
+								detail_image: unsafe { UnsafeDesc::<Image<Image2d>>::new(detail_id) },
+								sampler,
+								resolution: rt_resolution,
+								map_resolution,
+								time: frame_time,
+								display_mode: self.display_mode,
+								camera_fov_y_radians: CAMERA_FOV_Y_RADIANS,
+								camera_world,
+							},
+						)?;
+						Ok(())
+					},
 			)?;
 
 			Ok(rt.into_desc())

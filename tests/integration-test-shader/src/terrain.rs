@@ -1,4 +1,4 @@
-use glam::{Vec2, Vec2Swizzles, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
+use glam::{Mat4, Vec2, Vec2Swizzles, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use rust_gpu_bindless_macros::{BufferStruct, bindless};
 use rust_gpu_bindless_shaders::descriptor::{Descriptors, Image, Image2d, ImageType, Sampler, StrongDesc, UnsafeDesc};
 #[cfg(target_arch = "spirv")]
@@ -27,10 +27,8 @@ pub struct Param {
 	pub map_resolution: Vec2,
 	pub time: f32,
 	pub display_mode: u32,
-	pub camera_pos: Vec3,
-	pub camera_right: Vec3,
-	pub camera_up: Vec3,
-	pub camera_forward: Vec3,
+	pub camera_fov_y_radians: f32,
+	pub camera_world: Mat4,
 }
 
 #[derive(Copy, Clone)]
@@ -91,8 +89,6 @@ const AMBIENT_COLOR: Vec3 = Vec3::new(0.03, 0.05, 0.07);
 const GRASS_HEIGHT: f32 = 0.465;
 const DRAINAGE_WIDTH: f32 = 0.3;
 const RAYMARCH_QUALITY: f32 = 1.6;
-const CAMERA_FOV_DEGREES: f32 = 11.0;
-
 const HEIGHT_FREQUENCY: f32 = 3.0;
 const HEIGHT_AMP: f32 = 0.125;
 const HEIGHT_OCTAVES: usize = 3;
@@ -137,8 +133,8 @@ fn exp3(v: Vec3) -> Vec3 {
 }
 
 #[inline(always)]
-fn camera_focal_scale(fov_degrees: f32) -> f32 {
-	((90.0 - fov_degrees * 0.5) * PI / 180.0).tan()
+fn camera_focal_scale(fov_y_radians: f32) -> f32 {
+	(0.5 * fov_y_radians).tan().recip()
 }
 
 #[inline(always)]
@@ -630,11 +626,17 @@ fn sample_map(img: &SampledImage2d, sampler: Sampler, map_resolution: Vec2, uv: 
 	let ridgemap = sample.z;
 	let trees = sample.w;
 
-	let h1 = sample_map_raw(img, sampler, (uv + Vec2::new(texel.x, 0.0)).min(Vec2::ONE - texel)).x;
-	let h2 = sample_map_raw(img, sampler, (uv + Vec2::new(0.0, texel.y)).min(Vec2::ONE - texel)).x;
-	let v1 = Vec3::new(texel.x, 0.0, h1 - height);
-	let v2 = Vec3::new(0.0, texel.y, h2 - height);
-	let normal = v1.cross(v2).normalize().xzy();
+	let uv_x0 = (uv - Vec2::new(texel.x, 0.0)).max(texel);
+	let uv_x1 = (uv + Vec2::new(texel.x, 0.0)).min(Vec2::ONE - texel);
+	let uv_y0 = (uv - Vec2::new(0.0, texel.y)).max(texel);
+	let uv_y1 = (uv + Vec2::new(0.0, texel.y)).min(Vec2::ONE - texel);
+	let h_x0 = sample_map_raw(img, sampler, uv_x0).x;
+	let h_x1 = sample_map_raw(img, sampler, uv_x1).x;
+	let h_y0 = sample_map_raw(img, sampler, uv_y0).x;
+	let h_y1 = sample_map_raw(img, sampler, uv_y1).x;
+	let dhdx = (h_x1 - h_x0) / (uv_x1.x - uv_x0.x).max(1e-6);
+	let dhdy = (h_y1 - h_y0) / (uv_y1.y - uv_y0.y).max(1e-6);
+	let normal = Vec3::new(-dhdx, 1.0, -dhdy).normalize();
 
 	(height, normal, erosion, ridgemap, trees)
 }
@@ -844,13 +846,13 @@ pub fn terrain_fragment(
 	}
 
 	let s = (-1.0 + 2.0 * screen_uv) * Vec2::new(res.x / res.y, 1.0);
-	let camera_focal = camera_focal_scale(CAMERA_FOV_DEGREES);
+	let camera_focal = camera_focal_scale(param.camera_fov_y_radians);
 
 	// Camera from host
-	let ro = param.camera_pos;
-	let cr = param.camera_right;
-	let cu = param.camera_up;
-	let cd = param.camera_forward;
+	let ro = param.camera_world.w_axis.xyz();
+	let cr = param.camera_world.x_axis.xyz().normalize();
+	let cu = param.camera_world.y_axis.xyz().normalize();
+	let cd = (-param.camera_world.z_axis.xyz()).normalize();
 	let rd = (s.x * cr + s.y * cu + camera_focal * cd).normalize();
 
 	let sun = Vec3::new(-1.0, 0.4, 0.05).normalize();
